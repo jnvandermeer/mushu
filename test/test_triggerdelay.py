@@ -20,6 +20,9 @@
 
 from __future__ import division
 
+import pdb
+import ipdb
+import sys
 import unittest
 import json
 import socket
@@ -68,6 +71,7 @@ class TriggerTestAmp(Amplifier):
         return time.time() - self.last_sample
 
     def get_data(self):
+        # incredibly terse documentation here..
         self.s.sendall("%f\n" % time.time())
         # simulate blocking until we have enough data
         elapsed = self.elapsed
@@ -76,23 +80,32 @@ class TriggerTestAmp(Amplifier):
         self._marker_count += 1
         self.s.sendall("%f\n" % time.time())
         dt = self.elapsed
-        samples = math.floor(self.fs * dt)
+        samples = int(math.floor(self.fs * dt))
         data = np.random.randint(0, 1024, (samples, self.channels))
         self.last_sample = time.time()
-        return data, [[samples-1, self._marker_count]]
+        logger.debug('samples = {s}'.format(s=samples))
+
+        return data, [[self.elapsed-1, self._marker_count]]
+        #return data, [[samples-1, self._marker_count]]
 
     def configure(self, fs):
         self.fs = fs
 
+    def get_sampling_frequency(self):
+        return self.fs
 
 class TestTriggerDelay(unittest.TestCase):
     """Test the trigger delay."""
 
     def test_triggerdelay(self):
         """Mean and max delay must be reasonably small."""
+        #ipdb.set_trace()
+        #print('hallo')
+        sys.stdout.write('hallo')
         for i in 10, 100, 1000, 10000:
             logger.debug('Setting FS to {fs}kHz'.format(fs=(i / 1000)))
             amp = libmushu.AmpDecorator(TriggerTestAmp)
+            #pdb.set_trace()
             amp._debug_tcp_marker_timestamps = True
             amp.configure(fs=i)
             amp.start()
@@ -100,14 +113,20 @@ class TestTriggerDelay(unittest.TestCase):
             t_start = time.time()
             while time.time() < t_start + 1:
                 data, marker = amp.get_data()
+                # print(data)
+                # pdb.set_trace()
                 for timestamp, m in marker:
-                    delta_t = (timestamp - float(m)) * 1000
-                    delays.append(delta_t)
+                     delta_t = (timestamp - float(m)) * 1000
+                     logger.debug('timestamp = {t}, m = {m}'.format(t=timestamp,m=m))
+                     delays.append(delta_t)
             amp.stop()
+
             delays = np.array(delays)
             logger.debug("Min: %.2f, Max: %.2f, Mean: %.2f, Std: %.2f" % (delays.min(), delays.max(), delays.mean(), delays.std()))
             self.assertLessEqual(delays.mean(), 1)
             self.assertLessEqual(delays.max(), 10)
 
+
 if __name__ == '__main__':
+    sys.stdout.write('hallo')
     unittest.main()

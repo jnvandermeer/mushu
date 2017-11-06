@@ -20,8 +20,8 @@
 
 import logging
 import time
-import ttk
-import Tkinter as tk
+import tkinter.ttk as ttk
+import tkinter as tk
 
 import matplotlib
 matplotlib.use('TkAgg')

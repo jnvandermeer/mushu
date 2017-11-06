@@ -76,7 +76,7 @@ class Epoc(Amplifier):
             data = self.parse_raw(raw)
             data = np.array(data)
         except Exception as e:
-            print e
+            print(e)
             data = np.array()
         return data.reshape(1, -1), []
 
@@ -169,10 +169,10 @@ class Epoc(Amplifier):
 
 if __name__ == '__main__':
     amp = Epoc()
-    print 'Reading...'
+    print('Reading...')
     while 1:
         try:
-            print amp.get_data()
+            print(amp.get_data())
         except Exception as e:
-            print e
+            print(e)
             break
