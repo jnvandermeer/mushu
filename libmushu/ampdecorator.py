@@ -32,16 +32,31 @@ automatically receive decorated amplifiers.
 
 from __future__ import division
 
-import select
+# import select
 import socket
 import time
 from multiprocessing import Process, Queue, Event
 import os
+import signal
 import struct
 import json
 import logging
+
+
+# warning: dirty hack to shut down the event loop.
+import subprocess
+import signal
+
+# we may not need those anymore
 import asyncore
 import asynchat
+
+# we definitely need this -- I don't know why it's greyed out here.
+import asyncio
+
+
+
+
 
 from libmushu.amplifier import Amplifier
 
@@ -172,7 +187,15 @@ class AmpDecorator(Amplifier):
         self.amp.stop()
         # stop the marker server
         self.tcp_reader_running.clear()
+
         logger.debug('Waiting for marker server process to stop...')
+        logger.debug('Using Dirty Hack and Send a KeyboardInterrupt (Linux Only for now): ...')
+
+        # try to send a keyboard CTRL-C to the process...
+        pid = self.tcp_reader.pid
+        os.kill(pid, signal.SIGINT)
+
+
         self.tcp_reader.join()
         logger.debug('Marker server process stopped.')
         # close the files
@@ -240,178 +263,127 @@ class AmpDecorator(Amplifier):
         return self.amp.get_sampling_frequency()
 
 
+def handle_data(queue, data):
+    # do the time-stamp thingy + put it into the queue.
+    timestamp = time.time()
+    markertext = data.decode("utf-8")
+    queue.put([timestamp, markertext])
+    print("%d" % queue.qsize())
+
+    # then print it out... hehe
+    item=queue.get()
+    queue.put(item)
+    print(item)
+
+
 def marker_reader(queue, running, ready):
-    """Start the TCP and UDP MarkerServers and start the receiving loop.
+    # define our UDP class , which includes what to actually DO with the data:
+    # this also kind-of uses the async/await stuff!
 
-    This method runs in a separate process and receives UDP and TCP
-    markers. Whenever a marker is received, it is put together with a
-    timestamp into a queue.
+    # so if I wanna pass stuff on to a queue, I'd have to give the queue as an input argument, so we can put stuff on it, right?
+    # put the queue in dunder init
+    # why isn't this subclassed?
+    # copy/paste the following from the examples on asyncio in python docs. We also tested these.
+    class EchoServerProtocol(asyncio.DatagramProtocol):
+        # i'll just define a setter method to pass on the queue. Man.
+        def __init__(self, queue):
+            self.queue = queue
 
-    After the TCP and UDP servers are set up the ``ready`` event is set
-    and the method enters the loop that runs forever until the
-    ``running`` Event is cleared. Received markers are put in the
-    ``queue``.
+        def set_queue(self, queue):
+            self.queue.queue
 
-    Parameters
-    ----------
-    queue : Queue
-        this queue is used to send markers to a different process
-    running : Event
-        this event is used to signal this process to terminate its main
-        loop
-    ready : Event
-        this signal is used to signal the "parent"-process that this
-        process is ready to receive marker
+        def connection_made(self, transport):
+            self.transport = transport
 
-    """
-    MarkerServer(queue, 'udp')
-    MarkerServer(queue, 'tcp')
+        def datagram_received(self, data, addr):
+            message = data.decode()
+            print('Received %r from %s' % (message, addr))
+            print('Send %r to %s' % (message, addr))
+            self.transport.sendto(data, addr)
+
+            # so -- instead of echo-ing some stuff -- move the queue forward to
+            # -- or IN ADDITION TO echo-ing --> handle the data.
+            # data handler, along with the data.
+            handle_data(queue, data)
+
+    # Define also the TCP class, with also a 'data handler'
+    # put the queue in dunder init
+    class EchoServerClientProtocol(asyncio.Protocol):
+        def __init__(self, queue):
+            self.queue = queue
+
+        def set_queue(self, queue):
+            self.queue = queue
+
+        def connection_made(self, transport):
+            peername = transport.get_extra_info('peername')
+            print('Connection from {}'.format(peername))
+            self.transport = transport
+
+        def data_received(self, data):
+            message = data.decode()
+            print('Data received: {!r}'.format(message))
+
+            print('Send: {!r}'.format(message))
+            self.transport.write(data)
+
+            print('Close the client socket')
+            self.transport.close()
+
+            # OK and then:
+            handle_data(queue, data)
+
+    # get our event loop from asyncio -- not our own event loop stuff as shown in the youtube video:
+    # it's still a bit esotheric.
+    loop = asyncio.get_event_loop()
+
+    # add stuff to the loop. First the UDP:
+    # One protocol instance will be created to serve all client requests
+    # transport is a coroutine?
+    print("Starting UDP server")
+    listen = loop.create_datagram_endpoint(
+        lambda: EchoServerProtocol(queue), local_addr=('127.0.0.1', PORT))
+    transport, protocol = loop.run_until_complete(listen)
+
+    # then the TCP: -- why one is called a coro, and another is called 'listen', I do not know.
+    # I also wish to check whether
+    print("Starting TCP server")
+    # the docs of asyncio are abhorrent. According to docs, this returns a server object.
+    # but a server object is apparently also a coroutine?
+    coro = loop.create_server(lambda: EchoServerClientProtocol(queue), '127.0.0.1', PORT)
+    server = loop.run_until_complete(coro)
+
+    # hmmm... we CAN change things so that TCP and UDP should use different ports.
+    # do UDP and TCP use different ports to begin with??
+    # OK... so this works quite well. Was easier than I thought. It all works nicely concurrently, too.
+    # so I just need to Methodify this, match to what's written in mushu, and pass on the multiprocessing queue?
+
+    # try that...
+
+    # say that we're ready.
     ready.set()
-    while running.is_set():
-        asyncore.loop(timeout=5, count=1)
+
+    print("starting...")
+
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
 
 
-class MarkerServer(asyncore.dispatcher):
-    """The marker server.
 
-    It opens a TCP or UDP socket and assigns a :class:`MarkerHandler` to
-    the opened socket.
+    print("stopping...")
 
-    """
+    # closing statements -- do we need those?:
+    # close the transport:
+    # transport.close() .. hmm apparently, we won't have to 'close' the transport?
+    # loop.run_until_complete(transport.wait_closed()) # does this make sense --> NO
 
-    def __init__(self, queue, proto):
-        """Initialize the Server.
+    # Close the server
+    # TCP:
+    server.close()
+    loop.run_until_complete(server.wait_closed())
 
-        Parameters
-        ----------
-        queue : multiprocessing.Queue instance
-        proto : string
-            The protocol to use. Can be either 'tcp' or 'udp'.
-
-        Raises
-        ------
-        ValueError : if the protocol is unsupported
-
-        """
-        asyncore.dispatcher.__init__(self)
-        self.queue = queue
-        if proto.lower() == 'tcp':
-            logger.debug('Opening TCP socket.')
-            self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self.setblocking(0)
-            self.bind(('', PORT))
-            self.listen(5)
-        elif proto.lower() == 'udp':
-            logger.debug('Opening UDP socket.')
-            self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.setblocking(0)
-            self.bind(('', PORT))
-            # in contrast to a TCP socket, an UDP socket has no
-            # connection, so the socket is immediately ready to receive
-            # data
-            handler = MarkerHandler(self, self.queue)
-        else:
-            raise ValueError('Unsupported protocol: {proto}'.format(proto=proto))
-
-    def handle_accept(self):
-        """Accept an incomming TCP connection.
-
-        """
-        pair = self.accept()
-        if pair is not None:
-            sock, addr = pair
-            logger.debug('Incoming connection from {addr}'.format(addr=addr))
-            handler = MarkerHandler(sock, self.queue)
-
-
-class MarkerHandler(asynchat.async_chat):
-    """Handler for incoming data streams.
-
-    This handler processes incoming data from a TCP or UDP sockets. Each
-    packet ends with a terminator character sequence. The handler takes
-    care of incomplete packets and puts complete packets in the queue.
-
-    """
-
-    def __init__(self, socket, queue):
-        """Initialize the Handler.
-
-        Parameters
-        ----------
-        socket : socket.socket
-            the socket can be TCP or UDP. In case of UDP the socket must
-            be binded already, the TCP socket must be an opened
-            connection (i.e. after accept)
-        queue : multiprocessing.Queue instance
-            The queue to send the received markers to.
-
-        """
-        asynchat.async_chat.__init__(self, socket)
-        self.set_terminator(END_MARKER)
-        self.data = ''
-        self.timestamp = None
-        self.queue = queue
-
-    def handle_close(self):
-        logger.debug('Connection closed by peer, closing connection.')
-        self.close()
-
-    def writable(self):
-        """Signal whether the socket is ready to send data.
-
-        Returns
-        -------
-        writable : bool
-            ready to send or not
-
-        """
-        # if we don't set the writable flag to false, the UDP socket
-        # will signal that it is ready to send data on every iteration
-        # of the asycore loop, which will cause massive CPU strain. this
-        # is not the case for TCP sockets, but doesn't hurt either.
-        return False
-
-    def collect_incoming_data(self, data):
-        """Got potentially partial data packet.
-
-        This method collects potentially incomplete data packets and
-        records the timestamp when the first part of the incomplete data
-        packet arrived.
-
-        Parameters
-        ----------
-        data : str
-            the data packet
-
-        """
-        if self.timestamp is None:
-            self.timestamp = time.time()
-        #logger.debug('Received maybe incomlete data: {data}'.format(data=data))
-        self.data = self.data + data
-
-    def found_terminator(self):
-        """Found a complete packet.
-
-        A complete data packet has arrived. Put the data packet with its
-        timestamp in the queue. And reset the timestamp.
-
-        """
-        # to something with data
-        #logger.debug('Received {data}'.format(data=self.data))
-        self.queue.put([self.timestamp, self.data])
-        self.data = ''
-        self.timestamp = None
-
-    def handle_error(self):
-        """An error occurred.
-
-        """
-        logger.error('An error occurred.')
-        self.close()
-        # the default implementation prints a condensed tracebackk which
-        # is not useful at all, so we re-raise the exception
-        raise
+    # close the loop, plz?
+    loop.close()
 

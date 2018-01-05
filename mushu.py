@@ -166,7 +166,7 @@ class Gui(ttk.Frame):
                 line.set_ydata(data_clean[:, j] + j * SCALE)
                 ticklocs.append(j * SCALE)
             self.axis.set_ylim(-SCALE, self.n_channels * SCALE)
-            self.axis.set_xlim(i - self.PAST_POINTS, i)
+            self.axis.set_xlim(len(self.data) - self.PAST_POINTS, len(self.data))
             self.axis.set_yticks(ticklocs)
             self.axis.set_yticklabels(self.channels)
             self.canvas.draw()
