@@ -140,7 +140,7 @@ class AmpDecorator(Amplifier):
     def presets(self):
         return self.amp.presets
 
-    def start(self, filename=None):
+    def start(self, filename=None, **kwargs):
         # prepare files for writing
         self.write_to_file = False
         if filename is not None:
@@ -179,8 +179,8 @@ class AmpDecorator(Amplifier):
         logger.debug('Marker server is ready.')
         # zero the sample counter
         self.received_samples = 0
-        # start the amp
-        self.amp.start()
+        # start the amp --> hopefully this'll work?
+        self.amp.start(**kwargs)
 
     def stop(self):
         # stop the amp
@@ -195,7 +195,6 @@ class AmpDecorator(Amplifier):
         pid = self.tcp_reader.pid
         os.kill(pid, signal.SIGINT)
 
-
         self.tcp_reader.join()
         logger.debug('Marker server process stopped.')
         # close the files
@@ -203,6 +202,8 @@ class AmpDecorator(Amplifier):
             logger.debug('Closing files.')
             for fh in self.fh_eeg, self.fh_marker, self.fh_meta:
                 fh.close()
+        print('amplifier stopped!')
+
 
     def configure(self, **kwargs):
         self.amp.configure(**kwargs)

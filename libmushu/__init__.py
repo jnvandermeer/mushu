@@ -67,7 +67,8 @@ supported_amps = {
     'randomamp': ['randomamp', 'RandomAmp'],
     'sinusamp' : ['sinusamp', 'SinusAmp'],
     'replayamp' : ['replayamp', 'ReplayAmp'],
-    'lslamp' : ['labstreaminglayer', 'LSLAmp']
+    'lslamp' : ['labstreaminglayer', 'LSLAmp'],
+    'bpamp' : ['brainproducts', 'BPAmp']
 }
 
 
