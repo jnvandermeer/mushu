@@ -11,11 +11,6 @@ import time
 
 from libmushu.amplifier import Amplifier
 
-from libmushu.driver.bptools.bptools import Receiver
-from libmushu.driver.bptools.container import DataContainer
-from libmushu.driver.bptools.datacurator import put_into_container, get_from_container, print_something, kill_loop, starting_up_the_loop
-
-
 
 logger = logging.getLogger(__name__)
 logger.info('Logger started.')
@@ -139,36 +134,6 @@ class BPAmp(Amplifier):
 
         logger.debug('Remotely Starting BP Amp in Monitoring Mode.')
 
-
-
-        # now that the software is controlled -- set up our data handlers/receivers/buffers.
-
-
-        print('starting...')
-
-
-        self.queue_incoming = multiprocessing.Queue()
-        self.queue_instructions = multiprocessing.Queue()
-        self.queue_outgoing = multiprocessing.Queue()
-
-        self.datasent = multiprocessing.Event()
-        self.curatorstop = multiprocessing.Event()
-
-        # set up the data acquisition Process.
-        self.container = DataContainer()
-        self.receiver = Receiver(queue_incoming, "10.100.0.3", 51244)
-
-        # NOW -- set up the keeping track up/updating/request handler process.
-        self.datacurator = multiprocessing.Process(target=starting_up_the_loop,
-                                                   args=(container,
-                                                         queue_incoming,
-                                                         queue_instructions,
-                                                         queue_outgoing,
-                                                         curatorstop,
-                                                         datasent)
-                                                   )
-
-
     def start(self, **kwargs):
         """ This should set things up, and wait until we press 'start' Once
 
@@ -216,25 +181,12 @@ class BPAmp(Amplifier):
         # Here, we'd need to call / initialize our 'container' method.
         # The container method will 'connect' to the server.
         # How will we handle the internal data matrix?
+        # check out my ideas. Maybe Decorate Numpy Array will become a to-do.
         # for now, we will proceed with Container.
         # Re-sending the bytecode (exactly) will be the final part of the on-line artifact correction
         # This means we'd need to save it somewhere (in container class)
 
         # you're already monitoring...
-
-        # The steps required are:
-
-        # 1) Start Recorder --> Q --> Buffer Process
-        # 2) Start The Main Event Loop with the Container in a  Buffer Process
-        # 3) Define Instruction & Data Queues between Recorder and Buffer Processes.
-
-        # let's wait a while.
-        time.sleep(0.5)
-        self.receiver.start()
-        time.sleep(0.5)
-        self.datacurator.start()
-
-
 
 
 
@@ -259,13 +211,6 @@ class BPAmp(Amplifier):
         self.sock.close()
 
         logger.debug('Stopping the Recording... going back to Monitoring Mode...')
-
-        self.receiver.shutdown()
-        self.receiver.join()
-
-        self.curatorstop.set()
-        self.curator.join()
-
 
     def get_data(self):
         """Receive a chunk of data an markers.
@@ -292,15 +237,8 @@ class BPAmp(Amplifier):
         # do the housekeeping for us.
 
         """
-        # 1) In order to get some data, put a 'get_data' in the instruction queue.
-        # 2) then wait to receive back the data (should be only 1 item)
-        # 3) then return this data (and/or markers).
 
-        receiver.shutdown()
-        receiver.join()
 
-        curatorstop.set()
-        curator.join()
 
 
     def get_channels(self):
@@ -328,9 +266,6 @@ class BPAmp(Amplifier):
         """
         # Return True only if at least one lsl stream can be found on
         # the network
-
-        # check the network for a computer with A and/or B,
-        # or... just return True.
         if pylsl.resolve_streams():
             return True
         return False

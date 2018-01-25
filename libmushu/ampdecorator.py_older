@@ -56,6 +56,8 @@ import asyncio
 
 
 
+
+
 from libmushu.amplifier import Amplifier
 
 
@@ -275,6 +277,65 @@ def handle_data(queue, data):
     print(item)
 
 
+"""""""<<<<<<< HEAD
+        """
+        pair = self.accept()
+        if pair is not None:
+            sock, addr = pair
+            logger.debug('Incoming connection from {addr}'.format(addr=addr))
+            handler = MarkerHandler(sock, self.queue)
+
+
+class MarkerHandler(asynchat.async_chat):
+    ""Handler for incoming data streams.
+
+    This handler processes incoming data from a TCP or UDP sockets. Each
+    packet ends with a terminator character sequence. The handler takes
+    care of incomplete packets and puts complete packets in the queue.
+
+    ""
+
+    def __init__(self, socket, queue):
+        """Initialize the Handler.
+
+        Parameters
+        ----------
+        socket : socket.socket
+            the socket can be TCP or UDP. In case of UDP the socket must
+            be binded already, the TCP socket must be an opened
+            connection (i.e. after accept)
+        queue : multiprocessing.Queue instance
+            The queue to send the received markers to.
+
+        """
+        asynchat.async_chat.__init__(self, socket)
+        self.set_terminator(END_MARKER)
+        self.data = ''
+        self.timestamp = None
+        self.queue = queue
+
+    def handle_close(self):
+        logger.debug('Connection closed by peer, closing connection.')
+        self.close()
+
+    def writable(self):
+        """Signal whether the socket is ready to send data.
+
+        Returns
+        -------
+        writable : bool
+            ready to send or not
+
+        """
+        # if we don't set the writable flag to false, the UDP socket
+        # will signal that it is ready to send data on every iteration
+        # of the asycore loop, which will cause massive CPU strain. this
+        # is not the case for TCP sockets, but doesn't hurt either.
+        return False
+
+    def collect_incoming_data(self, data):
+        """Got potentially partial data packet.
+=======
 def marker_reader(queue, running, ready):
     # define our UDP class , which includes what to actually DO with the data:
     # this also kind-of uses the async/await stuff!
@@ -361,6 +422,7 @@ def marker_reader(queue, running, ready):
 
     # say that we're ready.
     ready.set()
+>>>>>>> 4a9fdc10678ce837c67c7ea04c59cea55d007a2f
 
     print("starting...")
 
