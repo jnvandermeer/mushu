@@ -52,7 +52,7 @@ logger.info('Logger started')
 
 END_MARKER = '\n'
 BUFSIZE = 2**16
-PORT = 12344
+PORT = 32344
 
 
 class AmpDecorator(Amplifier):
@@ -360,7 +360,7 @@ class MarkerHandler(asynchat.async_chat):
         self.close()
 
     def writable(self):
-        """Signal weather the socket is ready to send data.
+        """Signal whether the socket is ready to send data.
 
         Returns
         -------

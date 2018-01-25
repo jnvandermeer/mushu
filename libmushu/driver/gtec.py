@@ -282,7 +282,7 @@ def main():
             data = amp.get_data()
             dt = time.time() - t
             if len(data) > 0:
-                print "%.5f seconds (%.5f ps), length: %d" % (dt, (len(data) / 16.) * 1/dt, len(data))
+                print("%.5f seconds (%.5f ps), length: %d" % (dt, (len(data) / 16.) * 1/dt, len(data)))
     finally:
         amp.stop()
 

@@ -83,7 +83,7 @@ if __name__ == '__main__':
     amp.start()
     for i in range(20):
         t = time.time()
-        print amp.get_data()
+        print(amp.get_data())
     amp.stop()
 #
 #    # the same using a context manager, start and stop are called by the
