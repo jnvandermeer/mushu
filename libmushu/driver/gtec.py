@@ -22,7 +22,7 @@
 
 import struct
 import time
-from exceptions import Exception
+#from exceptions import Exception
 import logging
 
 import usb
@@ -152,7 +152,7 @@ class GUSBamp(Amplifier):
             raise AmpError('Unknown mode: %s' % mode)
 
 
-    def set_sampling_ferquency(self, fs, channels, bpfilter, notchfilter):
+    def set_sampling_frequency(self, fs, channels, bpfilter, notchfilter):
         """ Set the sampling frequency and filters for individual channels.
 
         Parameters:

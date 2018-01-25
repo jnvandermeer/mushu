@@ -37,11 +37,26 @@ import socket
 import time
 from multiprocessing import Process, Queue, Event
 import os
+import signal
 import struct
 import json
 import logging
+
+
+# warning: dirty hack to shut down the event loop.
+import subprocess
+import signal
+
+# we may not need those anymore
 import asyncore
 import asynchat
+
+# we definitely need this -- I don't know why it's greyed out here.
+import asyncio
+
+
+
+
 
 from libmushu.amplifier import Amplifier
 
@@ -52,7 +67,7 @@ logger.info('Logger started')
 
 END_MARKER = '\n'
 BUFSIZE = 2**16
-PORT = 32344
+PORT = 12344
 
 
 class AmpDecorator(Amplifier):
@@ -360,7 +375,7 @@ class MarkerHandler(asynchat.async_chat):
         self.close()
 
     def writable(self):
-        """Signal whether the socket is ready to send data.
+        """Signal weather the socket is ready to send data.
 
         Returns
         -------

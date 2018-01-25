@@ -20,7 +20,7 @@
 
 import logging
 import time
-import ttk
+import tkinter.ttk as ttk
 import tkinter as tk
 
 import matplotlib
