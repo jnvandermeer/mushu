@@ -11,10 +11,8 @@ import time
 
 from libmushu.amplifier import Amplifier
 
-from libmushu.driver.bptools.bptools import Receiver
-from libmushu.driver.bptools.container import DataContainer
-from libmushu.driver.bptools.datacurator import put_into_container, get_from_container, print_something, kill_loop, starting_up_the_loop
 
+from libmushu.driver.bptools.datacurator import DataCurator
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +42,7 @@ class BPAmp(Amplifier):
         self.expectedreadout=0
         self.experimentnumber=''
         self.sock=None
+        self.fs=5000
 
     """Pseudo Amplifier for Brain Products MR-compatible systems.
     These systems are actually quite quite old, but still somenow the go-to
@@ -70,6 +69,7 @@ class BPAmp(Amplifier):
     def configure(self,
                   remotecontrol=True,
                   recorderip='10.100.0.3',
+                  recorderport=51244,
                   pathtoworkspace='C:\\Vision\\Workfiles\\NF_64chEEG.rwksp',
                   experimentnumber='Pre-Run01',
                   subjectid='0001',
@@ -139,34 +139,9 @@ class BPAmp(Amplifier):
 
         logger.debug('Remotely Starting BP Amp in Monitoring Mode.')
 
-
-
-        # now that the software is controlled -- set up our data handlers/receivers/buffers.
-
-
-        print('starting...')
-
-
-        self.queue_incoming = multiprocessing.Queue()
-        self.queue_instructions = multiprocessing.Queue()
-        self.queue_outgoing = multiprocessing.Queue()
-
-        self.datasent = multiprocessing.Event()
-        self.curatorstop = multiprocessing.Event()
-
-        # set up the data acquisition Process.
-        self.container = DataContainer()
-        self.receiver = Receiver(queue_incoming, "10.100.0.3", 51244)
-
         # NOW -- set up the keeping track up/updating/request handler process.
-        self.datacurator = multiprocessing.Process(target=starting_up_the_loop,
-                                                   args=(container,
-                                                         queue_incoming,
-                                                         queue_instructions,
-                                                         queue_outgoing,
-                                                         curatorstop,
-                                                         datasent)
-                                                   )
+        self.datacurator = DataCurator(recorderip, recorderport)
+
 
 
     def start(self, **kwargs):
@@ -192,20 +167,26 @@ class BPAmp(Amplifier):
         """
 
         # so.. if this is part of the extra passed arguments --> change it!
+
+        # stop the recording
+        # self.sock.sendall(b'4')  # superfluously send '4' again.
+
         if 'experimentnumber' in kwargs.keys():
             experimentnumber=kwargs['experimentnumber']
             self.sock.sendall(b'2' + experimentnumber.encode())
             time.sleep(1)
 
-        self.sock.sendall(b'4')  # superfluously send '4' again.
-        time.sleep(1)
+        # self.sock.sendall(b'4')  # superfluously send '4' again.
+        # time.sleep(1)
         self.sock.sendall(b'M')  # so when Monitoring Mode is ON --> RDP'll be active.
         time.sleep(1)
         self.sock.sendall(b'D')
-        time.sleep(3)
+        time.sleep(2)
         self.sock.sendall(b'S')
 
         logger.debug('Starting Recording.')
+
+        print('started the Recording!')
 
         # so we CAN start the recording AFTER Monitoring has been initiated.
         # I guess we can close connection, too, right?
@@ -228,44 +209,23 @@ class BPAmp(Amplifier):
         # 2) Start The Main Event Loop with the Container in a  Buffer Process
         # 3) Define Instruction & Data Queues between Recorder and Buffer Processes.
 
-        # let's wait a while.
-        time.sleep(0.5)
-        self.receiver.start()
         time.sleep(0.5)
         self.datacurator.start()
 
-
-
-
-
     def stop(self):
-        """Close the lsl inlets.
-
-            This should also 'stop' the Process to (only) keep track of the Big Matrix.
-
-            It's not needed to actually do anything anymore as far as we're concerned.
-
-
+        """This has nothing to do with LSL
         """
 
         self.sock.sendall(b'Q')
         time.sleep(1)
+        self.datacurator.stop_acquisition()
+        time.sleep(1)
+        self.datacurator.join()
 
-
-        # 'stop' the Underlying Process, too.
-
-        # close the socket (this might close also the Recorder Software)
-        self.sock.sendall(b'X')
+        # self.sock.sendall(b'X')
         self.sock.close()
 
         logger.debug('Stopping the Recording... going back to Monitoring Mode...')
-
-        self.receiver.shutdown()
-        self.receiver.join()
-
-        self.curatorstop.set()
-        self.curator.join()
-
 
     def get_data(self):
         """Receive a chunk of data an markers.
@@ -291,29 +251,30 @@ class BPAmp(Amplifier):
         # maybe we can decorate a numpy array.. though.. , we can implement a get_data method that'll
         # do the housekeeping for us.
 
+        # for now, though -- just return the data.
+
         """
         # 1) In order to get some data, put a 'get_data' in the instruction queue.
         # 2) then wait to receive back the data (should be only 1 item)
         # 3) then return this data (and/or markers).
-
-        receiver.shutdown()
-        receiver.join()
-
-        curatorstop.set()
-        curator.join()
-
+        return self.datacurator.get_data(), []
 
     def get_channels(self):
         """Get channel names.
 
         """
-        return self.channels
+        hdr = self.datacurator.get_hdr()
+        return hdr['channelNames']
 
     def get_sampling_frequency(self):
         """Get the sampling frequency of the lsl device.
 
         """
+        hdr = self.datacurator.get_hdr()
         return self.fs
+        # print(hdr)
+        # return int(1000000 / hdr['samplingInterval'])
+
 
     @staticmethod
     def is_available():

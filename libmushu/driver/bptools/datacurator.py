@@ -1,11 +1,9 @@
 from libmushu.driver.bptools.bptools import Receiver
 from libmushu.driver.bptools.container import DataContainer
 
-
-
 import multiprocessing
-
 import asyncio
+import time
 
 
 # f1 --> grab stuff from the receiver queue, put it into the container.
@@ -15,65 +13,180 @@ async def put_into_container(container, queue_incoming):
     # captured some data and put it into the queue. This will use this process's
     # computational resources to make the container handle that new data
     # package.
-    container.handle_queue_item(queue_incoming.get())
+    while True:
 
-    # and.. yield back the control.
-    await async.sleep(0.001)
+        while not queue_incoming.empty():
+
+            queue_item = queue_incoming.get()
+
+            if 'hdr' in queue_item.keys():
+                container.pass_hdr(queue_item['hdr'])
+            if 'd' in queue_item.keys():
+                # print queue_item['block']
+                container.pass_data(queue_item['d'], queue_item['markers'], queue_item['block'])
+
+        # and.. yield back the control.
+        await asyncio.sleep(0)
 
 
 # f2 --> check if there's a 'get_data' instruction in the queue, and then deal with that.
-async def get_from_container(container, queue_instructions, queue_outgoing, datasent):
+# this function will actually become bigger in the future to allow for different commands, too.
+async def get_from_container(container, queue_instructions, queue_data, datasent):
     # check whether there's anything in the queue.
-    while queue_instructions.qsize() > 0:
 
-        # probably can do better --> implement this in container?
-        points_in_block = container.get_samples_in_block()
-        # handle queue requests
-        queue_item = queue_instructions.get()
+    while True:
+        while queue_instructions.qsize() > 0:
 
-        if queue_item == 'get_data':
+            # print('returning some data')
 
-            # this is the interaction --> a counter in container which gets updated
-            nblocks = container.get_last_block() - container.get_block_position()
+            # probably can do better --> implement this in container?
+            points_in_block = container.get_samples_in_block()
+            # print(points_in_block)
+            # handle queue requests
+            queue_item = queue_instructions.get()
 
-            if nblocks > 1:
-                data = container[nblocks * points_in_block, :]
+            if queue_item == 'get_data':
 
-                queue_outgoing.put(data)
+                # print('OK... so... now we shall obtain some data.')
 
-                # tell the other (i.e. main) process that this function has done its job.
+                # this is the interaction --> a counter in container which gets updated
+                nblocks = container.get_last_block() - container.get_block_position()
+
+                # print(nblocks)
+                # print(nblocks * points_in_block)
+
+                if nblocks > 0:
+                    data = container[0: (nblocks * points_in_block), :]
+
+                    queue_data.put(data)
+
+                    container.set_block_position(container.get_last_block())
+
+                    # tell the other (i.e. main) process that this function has done its job.
+                    datasent.set()
+                else:
+                    queue_data.put(None)  # stop it from jamming?
+                    datasent.set()
+
+            if queue_item == 'get_hdr':
+                queue_data.put(container.hdr)
                 datasent.set()
 
-                container.set_block_position(container.get_last_block())
-
-    # yield back control...
-    await async.sleep(0.001)
+        # yield back control...
+        await asyncio.sleep(0)
 
 
-async def print_something():
-    while True:
-        print('test')
-        await asyncio.sleep(1)
+async def check_stop_loop(loop, killswitch):
+    while not killswitch.is_set():
+        await asyncio.sleep(0)
+    loop.stop()
 
 
-# i.e. gracefully exiting the main event loop within the Process. So we can exit/join it again.
-async def kill_loop(loop, event):
-    while True:
-        print(event.is_set())
-        if event.is_set():
-            loop.stop()
-        await asyncio.sleep(0.001)
+class DataCurator(multiprocessing.Process):
+    """
+    So this class will be the Process in between the Main Process and the Receiver Process
+    It will use Queues for communication
+    R --> DC --> Main
+             <-- Main
+    DC contains the Container, which contains the NP Array.
+    This is a way of having the continuous Data Buffer ready
+    AND also put all of this upkeep and shit in separate Processes
+    Freeing up my Main Process to do all of the Fancy Stuff without
+    having to worry about data buffering or keeping track of things.
 
+    So this is a framework that should also work with other Amp Receivers
 
-        # so .. this is the loop...
+    This should start an asyncio event loop, and in order to nicely shut down
+    this main event loop -- it should accept a
 
+    """
 
-def starting_up_the_loop(container, queue_incoming, queue_instructions, queue_outgoing, curatorstop, datasent):
-    loop = asyncio.get_event_loop()
-    loop.create_task(put_into_container(container, queue_incoming))
-    loop.create_task(get_from_container(container, queue_instructions, queue_outgoing, datasent))
-    loop.create_task(kill_loop(loop, curatorstop))
-    loop.create_task(print_something())
-    loop.run_forever()
+    def __init__(self, ip_address, port):
+        super(DataCurator, self).__init__()
+
+        self.ip_address = ip_address
+        self.port = port
+
+        self.queue_instructions = multiprocessing.Queue()
+        self.queue_data = multiprocessing.Queue()
+
+        # and a toggle to help killing our Process.
+        self.killswitch = multiprocessing.Event()
+        self.datasent = multiprocessing.Event()
+
+    def run(self):
+        print('OK .. starting the DataCurator.')
+        queue_incoming = multiprocessing.Queue()   # this is container's incoming, but receiver's outgoing
+        receiver = Receiver(queue_incoming, self.ip_address, self.port)
+        # it'd actually be 'better' to more explicitly use variables here, instead of relying on the self. variables.
+        receiver.start()
+
+        # set things up...
+        container = DataContainer()
+        # a toggle for helping out whether we've sent data
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(put_into_container(container, queue_incoming))
+        loop.create_task(get_from_container(container, self.queue_instructions, self.queue_data, self.datasent))
+        loop.create_task(check_stop_loop(loop, self.killswitch))
+        # loop.create_task(self.get_data())
+        loop.run_forever()
+
+        print('loop stopped!')
+
+        # once you're here -- I guess the loop as stopped, since normally python jams around here.
+        # so once the loop has stopped -- also stop the Receiver (from clogging the incoming queue.
+        receiver.shutdown()
+        print('receiver shutdown sent!')
+        receiver.join()
+        print('receiver successfully joined!')
+
+    def stop_acquisition(self):
+        print('requesting to stop the acquisition')
+        self.killswitch.set()
+
+    @property
+    def is_data_sent(self):
+        if self.datasent.is_set():
+            return True
+        return False
+
+    def get_data(self):
+
+        # so! since this lives still inside the Master Process (and the Slave Process is the stuff/mem c
+        # copy of whats defined in this class --> it'd be trivial to get some data, right?
+
+        # so IF we wish to return some data --> just put something into a queue, set returndata false
+        # and whenever returndata == true --> return the data.
+        # hopefully the other process will be fast enough so as to do it fastly.
+        self.datasent.clear()
+        self.queue_instructions.put('get_data')
+        while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
+                                            # the datasent multiprocessing event.
+                                            # JAM until datasent is set to True.
+            time.sleep(0)
+
+        # print(self.queue_data.qsize())
+        return self.queue_data.get()
+
+    def get_hdr(self):
+
+        self.datasent.clear()
+        self.queue_instructions.put('get_data')
+        while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
+                                            # the datasent multiprocessing event.
+                                            # JAM until datasent is set to True.
+            time.sleep(0)  # effectively, a pass.
+
+        # print(self.queue_data.qsize())
+        return self.queue_data.get()
+
+# def starting_up_the_loop(container, queue_incoming, queue_instructions, queue_outgoing, curatorstop, datasent):
+#    loop = asyncio.get_event_loop()
+#    loop.create_task(put_into_container(container, queue_incoming))
+#    loop.create_task(get_from_container(container, queue_instructions, queue_outgoing, datasent))
+#    loop.create_task(kill_loop(loop, curatorstop))
+#    loop.create_task(print_something())
+#    loop.run_forever()
 
 

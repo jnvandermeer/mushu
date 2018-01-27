@@ -181,7 +181,7 @@ class Receiver(multiprocessing.Process):
         #### Main Loop ####
         # finish is used for a msg from Recorder; exit_is_set() is used
         # to exit from a signal from this computer.
-        while not self.exit.is_set() and not self.finish:
+        while not self.exit.is_set():  # and not self.finish:
 
             # Get message header as raw array of chars
             rawhdr = self.RecvData(con, 24)
@@ -255,29 +255,28 @@ class Receiver(multiprocessing.Process):
                     for m in range(markerCount):
                         print("Marker " + markers[m].description + " of type " + markers[m].type)
 
-                # Put data at the end of actual buffer
-                data1s.extend(data)
-
-                # If more than 1s of data is collected, calculate average power, print it and reset data buffer
-                if len(data1s) > channelCount * 1000000 / samplingInterval:
-                    index = int(len(data1s) - channelCount * 1000000 / samplingInterval)
-                    data1s = data1s[index:]
-
-                    avg = 0
-                    # Do not forget to respect the resolution !!!
-                    for i in range(len(data1s)):
-                        avg = avg + data1s[i]*data1s[i]*resolutions[i % channelCount]*resolutions[i % channelCount]
-
-                    avg = avg / len(data1s)
-                    print("Average power: " + str(avg))
-
-                    data1s = []
-
-
+                # # Put data at the end of actual buffer
+                # data1s.extend(data)
+                #
+                # # If more than 1s of data is collected, calculate average power, print it and reset data buffer
+                # if len(data1s) > channelCount * 1000000 / samplingInterval:
+                #     index = int(len(data1s) - channelCount * 1000000 / samplingInterval)
+                #     data1s = data1s[index:]
+                #
+                #     avg = 0
+                #     # Do not forget to respect the resolution !!!
+                #     for i in range(len(data1s)):
+                #         avg = avg + data1s[i]*data1s[i]*resolutions[i % channelCount]*resolutions[i % channelCount]
+                #
+                #     avg = avg / len(data1s)
+                #     print("Average power: " + str(avg))
+                #
+                #     data1s = []
 
             elif msgtype == 3:
                 # Stop message, terminate program
                 print("Stop")
+                self.exit.set()
                 self.finish = True
 
 

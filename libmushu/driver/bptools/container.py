@@ -124,7 +124,7 @@ class DataContainer(object):
             self.lastblock = block
             self.blockposition = block
 
-            print('Initialized and Starting Data Collection')
+            # print('Initialized and Starting Data Collection')
 
         # check our blocks, pls?
         # this is our own internal block counter.
@@ -225,10 +225,10 @@ class DataContainer(object):
 
     def __getitem__(self, *args, **kwargs):
 
-        print('args:')
-        print(*args)
-        print('kwargs')
-        print(**kwargs)
+        # print('args:')
+        # print(*args)
+        # print('kwargs')
+        # print(**kwargs)
         # print(args[0])
         # print(args[1])
         # args = *args
@@ -243,9 +243,9 @@ class DataContainer(object):
         elif isinstance(args[0], int):
             firstarg = args[0]
 
-        print('firstarg:')
-        print(type(firstarg))
-        print(firstarg)
+        # print('firstarg:')
+        # print(type(firstarg))
+        # print(firstarg)
 
         # return args
 
