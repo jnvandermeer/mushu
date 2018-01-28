@@ -115,13 +115,15 @@ class DataCurator(multiprocessing.Process):
         self.datasent = multiprocessing.Event()
 
     def run(self):
+
+	# All code in here runs in the subprocess, with a memory footprint of the rest of the stuff in this class.
         print('OK .. starting the DataCurator.')
         queue_incoming = multiprocessing.Queue()   # this is container's incoming, but receiver's outgoing
         receiver = Receiver(queue_incoming, self.ip_address, self.port)
         # it'd actually be 'better' to more explicitly use variables here, instead of relying on the self. variables.
         receiver.start()
 
-        # set things up...
+        # set things up... the DataContainer LIVES inside the subprocess and we use the queues to communicate with them.
         container = DataContainer()
         # a toggle for helping out whether we've sent data
 
@@ -132,6 +134,8 @@ class DataCurator(multiprocessing.Process):
         # loop.create_task(self.get_data())
         loop.run_forever()
 
+	# since we've arrived here -- we've escaped from the main event loop.
+	# this is in essence a while loop (even though you don't see it here.
         print('loop stopped!')
 
         # once you're here -- I guess the loop as stopped, since normally python jams around here.
@@ -164,7 +168,7 @@ class DataCurator(multiprocessing.Process):
         while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
                                             # the datasent multiprocessing event.
                                             # JAM until datasent is set to True.
-            time.sleep(0)
+            time.sleep(0)  # effectively this is a 'pass' statement?
 
         # print(self.queue_data.qsize())
         return self.queue_data.get()
@@ -172,7 +176,7 @@ class DataCurator(multiprocessing.Process):
     def get_hdr(self):
 
         self.datasent.clear()
-        self.queue_instructions.put('get_data')
+        self.queue_instructions.put('get_hdr')
         while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
                                             # the datasent multiprocessing event.
                                             # JAM until datasent is set to True.
@@ -180,6 +184,8 @@ class DataCurator(multiprocessing.Process):
 
         # print(self.queue_data.qsize())
         return self.queue_data.get()
+
+	# OR -- if you've done it already -- use the saved one.
 
 # def starting_up_the_loop(container, queue_incoming, queue_instructions, queue_outgoing, curatorstop, datasent):
 #    loop = asyncio.get_event_loop()
