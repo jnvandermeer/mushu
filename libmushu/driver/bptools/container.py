@@ -49,6 +49,8 @@ class DataContainer(object):
         self.lastblock = 0
         self.firstblock = 0
         self.blockposition = 0
+        # where we will put the markers.
+        self.markers = dict()
 
     # resolve all the passing of stuff. This will call pass_hdr and pass_data.
     def handle_queue_item(self, queue_item):
@@ -73,8 +75,10 @@ class DataContainer(object):
         # data points. How many data points within 1 second?
         # samplingInterval is given in microseconds... if needed we may need
         # to move this somewhere lese
-        maxlength = int(self.maxlength_in_seconds * 1000000 / hdr['samplingInterval']);
+        maxlength = int(self.maxlength_in_seconds * 1000000 / hdr['samplingInterval'])
         self.maxlength = maxlength
+
+        self.samplingfrequency = round( 1000000 / hdr['samplingInterval'])
 
         # so we'll use m as our data matrix. But it's not a data MATRIX object
         # it's an NDarray object in numpy. So we don't get confused. ....
@@ -96,7 +100,7 @@ class DataContainer(object):
         # remain the same.
         # not ideal situation ,but... the header doesn't tell me how big each data
         # chunk is.
-        if self.pass_data_initialized == False:
+        if not self.pass_data_initialized:
             # make sure not to call this again. This is further initialialization
             # that you can only do once you've already got some data sent.
             self.pass_data_initialized = True
@@ -124,6 +128,8 @@ class DataContainer(object):
             self.lastblock = block
             self.blockposition = block
 
+            self.totalblocks = int( self.maxlength / self.points)
+
             # print('Initialized and Starting Data Collection')
 
         # check our blocks, pls?
@@ -139,7 +145,24 @@ class DataContainer(object):
             # self.lastblock += 1  do NOT do this here --> append will take care of it.
 
         # using magic Append function, now
-        self.append(data)
+
+
+        # yes - but BEFORE (!!) we are going to pass on (append) the markers,
+        # figure out what they represent:
+        # class Marker(object):
+        #     def __init__(self):
+        #         self.position = 0
+        #         self.points = 0
+        #         self.channel = -1
+        #         self.type = ""
+        #         self.description = ""
+        # therefore, for each marker -- get position + block + (current) points from the beginning
+        # then --> STUR
+        # I already moved to convert this to position-within-block + description in bptools.py.
+
+        # append data
+        self.append(data, markers)
+
         self.receivedblocks.append(block)
         # add the matrix here.
         # do latest first (slicing operation)
@@ -151,7 +174,12 @@ class DataContainer(object):
         # we'd need an INTERNAL counter of where we are, know how many blocks
         # would fit into the matrix, etc.
 
-    def append(self, data):
+        # so... how do we handle the markers? I suppose you can assign an iterator + a block number to
+        # each event? --> then store them somewhere.
+        # keeping track of events as they roll in -- just prepending them to a list.
+        # and cut off the last part of the list when needed
+
+    def append(self, data, markers):
 
         # print(t)
         # might be a memory leak - use another notation: m[::-1] = should be same
@@ -179,12 +207,25 @@ class DataContainer(object):
 
         self.lastblock += 1
 
+        # sooo... we deal with the markers. lastblock == block at this point.
+
+        # so we make a self.markers DICT - with KEYS --> the BLOCK, with VALUES -- the Markers!
+        # we can then use the blocks to figure out marker positions, etc.
+        if len(markers) > 0:
+            self.markers[self.lastblock] = markers
+
+        # and this was to pop the markers in which the key is out-dated, so we don't keep
+        # collecting markers indefinitely.
+        if self.lastblock - self.totalblocks in self.markers.keys():
+            self.markers.pop(self.lastblock - self.totalblocks, None)
+
         # self.m[self.internal_matrix_pos:self.internal_matrix_pos+self.points]=np.flipud(data)
+
+        # soooo.... how many blocks in total in our little data matrix??
 
         # self.m[self.points:,:]=self.m[:-self.points,:]
 
         # self.m[:self.points,:]=np.flipud(data)
-
 
         # self.m = np.concatenate((np.flipud(data),self.m))
         #
@@ -223,6 +264,52 @@ class DataContainer(object):
     def get_samples_in_block(self):
         return self.points
 
+    def obtain_markers(self, interval):
+
+        b = interval[0]
+        e = interval[1]
+
+
+
+        # based on b and e ... what are the accompanying blocs?
+
+        # take enough blocks.
+        nblocks = round((e-b) / self.points + 0.5)
+
+        #blocks_to_be_considered = [i for i in range(self.lastblock,self.lastblock+nblocks]
+
+        returned_markers = []
+
+        mlat_begin = b % self.points
+        block_begin = self.lastblock - b // self.points
+
+        if nblocks > 0:
+            for bl in range(block_begin, block_begin-nblocks, -1):
+                if bl in self.markers.keys():
+                    list_to_be_processed = self.markers[bl]
+                    if len(list_to_be_processed) > 0:
+
+                        for marker_item in list_to_be_processed:
+
+                            # latency --> in POINTS
+                            latency = (self.lastblock-bl) * self.points + (self.points - marker_item[0]) - \
+                                      mlat_begin
+
+                            # latency --> now in msec since onset of this particular interval...
+                            msec_latency = latency / self.samplingfrequency
+
+                            description = marker_item[1]
+
+                            if b <= latency <= e:
+                                returned_markers.append((msec_latency, description))
+
+        if len(returned_markers) > 0:
+            return returned_markers
+        else:
+            return returned_markers
+        # this function accepts an interval and returns markers whose timestamp happens
+        # to lie within this interval.
+
     def __getitem__(self, *args, **kwargs):
 
         # print('args:')
@@ -259,8 +346,6 @@ class DataContainer(object):
                 # replace with new number
             newval = firstarg + self.internal_matrix_pos
 
-
-
         elif isinstance(firstarg, slice):
             # newslice=slice(None) # init a new slice?
 
@@ -290,6 +375,7 @@ class DataContainer(object):
 
             # define newslice for me..
             newslice = slice(newslice_start, newslice_stop, newslice_step)
+
 
         # now return some things... using same logic as before...
         if isinstance(*args, tuple):

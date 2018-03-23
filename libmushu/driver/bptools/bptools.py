@@ -212,7 +212,7 @@ class Receiver(multiprocessing.Process):
 
 
                 # it works... # c.pass_hdr(hdr)
-                self.queue.put({'hdr':hdr})
+                self.queue.put({'hdr': hdr})
 
 
 
@@ -237,7 +237,15 @@ class Receiver(multiprocessing.Process):
 
                 # so .. pass a NUMPY Array matrix, as well as the markers.
 
-                self.queue.put({'d': d, 'markers': markers, 'block': block})  # c.pass_data(d,markers,block)
+                # yea, but we will convert the markers to something more useful for us, like so:
+                newmarkers = []
+                if markerCount > 0:
+
+                    # i already prepare to put it into a list.
+                    for m in markers:
+                        newmarkers.append([m.position, m.description])
+
+                self.queue.put({'d': d, 'markers': newmarkers, 'block': block})  # c.pass_data(d,markers,block)
 
 
                 # print c.get_lastblock()

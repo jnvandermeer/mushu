@@ -28,6 +28,24 @@ logger.info('Logger started.')
 # amplifier, i.e. the python-3 equivalents of the python2 code supplied by BP as a first help.
 
 
+PRESETS = [
+    ['Lab, 64-Ch EEG, testing',
+     {'fs': 5000,
+      'n_channels': 64,
+      'remotecontrol': True,
+      'recorderip': '10.100.0.3',
+      'recorderport': 51244,
+      'pathtoworkspace': 'C:\\Vision\\Workfiles\\NF_64chEEG.rwksp',
+      'experimentnumber': 'Pre-Run01',
+      'subjectid': '0001',
+      'backgroundbuffsize': 100,
+      'expectedreadout': 0.020,
+      }
+     ]
+]
+
+
+
 
 
 class BPAmp(Amplifier):
@@ -35,14 +53,17 @@ class BPAmp(Amplifier):
 
     def __init__(self):
 
+
         # call the super...
         super(BPAmp, self).__init__()
         # set some amp-specific values...
+        self.presets = PRESETS
         self.backgroundbuffsize=0
         self.expectedreadout=0
         self.experimentnumber=''
         self.sock=None
         self.fs=5000
+        self.channels=[]
 
     """Pseudo Amplifier for Brain Products MR-compatible systems.
     These systems are actually quite quite old, but still somenow the go-to
@@ -75,6 +96,8 @@ class BPAmp(Amplifier):
                   subjectid='0001',
                   backgroundbuffsize=100,
                   expectedreadout=0.020,
+                  n_channels=64,
+                  fs=5000,
                   **kwargs):
         """Configure the BP device.
 
@@ -103,6 +126,8 @@ class BPAmp(Amplifier):
 
 
         """
+
+        self.channels = ['Ch-%i' % (i + 1) for i in range(n_channels)]
 
         # solve this sometime later -- behaviour should be to get some kind of popup
         # and a button to say that you're ready.
@@ -141,8 +166,6 @@ class BPAmp(Amplifier):
 
         # NOW -- set up the keeping track up/updating/request handler process.
         self.datacurator = DataCurator(recorderip, recorderport)
-
-
 
     def start(self, **kwargs):
         """ This should set things up, and wait until we press 'start' Once
@@ -212,6 +235,16 @@ class BPAmp(Amplifier):
         time.sleep(0.5)
         self.datacurator.start()
 
+
+        # don't do for now: hdr=self.datacurator.get_hdr()
+
+        # update stuff that was clear at first instance
+        # self.channels=hdr['channelNames']
+        # update stuff that was clear at first instance, II -- fs!
+        # samplingfrequency = round(1000000 / hdr['samplingInterval'])
+        # self.fs = samplingfrequency
+
+
     def stop(self):
         """This has nothing to do with LSL
         """
@@ -257,23 +290,20 @@ class BPAmp(Amplifier):
         # 1) In order to get some data, put a 'get_data' in the instruction queue.
         # 2) then wait to receive back the data (should be only 1 item)
         # 3) then return this data (and/or markers).
-        return self.datacurator.get_data(), []
+        data, markers = self.datacurator.get_data()
+        return data, markers
 
     def get_channels(self):
         """Get channel names.
 
         """
-        hdr = self.datacurator.get_hdr()
-        return hdr['channelNames']
+        return self.channels
 
     def get_sampling_frequency(self):
         """Get the sampling frequency of the lsl device.
 
         """
-        hdr = self.datacurator.get_hdr()
         return self.fs
-        # print(hdr)
-        # return int(1000000 / hdr['samplingInterval'])
 
 
     @staticmethod
@@ -292,7 +322,8 @@ class BPAmp(Amplifier):
 
         # check the network for a computer with A and/or B,
         # or... just return True.
-        if pylsl.resolve_streams():
-            return True
-        return False
 
+        # check if the server is running...
+
+        # I will return True, but there should be some kind of test here..
+        return True

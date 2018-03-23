@@ -39,34 +39,53 @@ async def get_from_container(container, queue_instructions, queue_data, datasent
 
             # print('returning some data')
 
-            # probably can do better --> implement this in container?
-            points_in_block = container.get_samples_in_block()
-            # print(points_in_block)
             # handle queue requests
             queue_item = queue_instructions.get()
 
-            if queue_item == 'get_data':
+            if queue_item[0] == 'get_data':
 
-                # print('OK... so... now we shall obtain some data.')
+                if queue_item[1] is not -1:
+                    interval = queue_item[1]
 
-                # this is the interaction --> a counter in container which gets updated
-                nblocks = container.get_last_block() - container.get_block_position()
+                    # figure out the current start/stop, but do not (yet) change anything
+                    # regarding current positions, so as to allow get_data to still get unobtained
+                    # items...
 
-                # print(nblocks)
-                # print(nblocks * points_in_block)
+                    data = container[interval[0]: interval[1], :]
 
-                if nblocks > 0:
-                    data = container[0: (nblocks * points_in_block), :]
+                    markers = container.obtain_markers([interval[0], interval[1]])
 
-                    queue_data.put(data)
-
-                    container.set_block_position(container.get_last_block())
-
-                    # tell the other (i.e. main) process that this function has done its job.
+                    queue_data.put((data, markers))
                     datasent.set()
+
                 else:
-                    queue_data.put(None)  # stop it from jamming?
-                    datasent.set()
+
+                    # probably can do better --> implement this in container?
+                    points_in_block = container.get_samples_in_block()
+
+                    # print('OK... so... now we shall obtain some data.')
+
+                    # this is the interaction --> a counter in container which gets updated
+                    nblocks = container.get_last_block() - container.get_block_position()
+
+                    # print(nblocks)
+                    # print(nblocks * points_in_block)
+
+                    if nblocks > 0:
+                        data = container[0: (nblocks * points_in_block), :]
+
+                        markers = container.obtain_markers([0, (nblocks * points_in_block)])
+
+                        queue_data.put((data, markers))
+
+                        container.set_block_position(container.get_last_block())
+
+                        # tell the other (i.e. main) process that this function has done its job.
+                        datasent.set()
+                    else:
+                        queue_data.put(None)  # stop it from jamming?
+                        datasent.set()
+
 
             if queue_item == 'get_hdr':
                 queue_data.put(container.hdr)
@@ -160,19 +179,20 @@ class DataCurator(multiprocessing.Process):
         # and whenever returndata == true --> return the data.
         # hopefully the other process will be fast enough so as to do it fastly.
         self.datasent.clear()
-        self.queue_instructions.put('get_data')
+        self.queue_instructions.put(('get_data', -1))
         while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
                                             # the datasent multiprocessing event.
                                             # JAM until datasent is set to True.
             time.sleep(0)
 
         # print(self.queue_data.qsize())
-        return self.queue_data.get()
+        (data, markers) = self.queue_data.get()
+        return data, markers
 
     def get_hdr(self):
 
         self.datasent.clear()
-        self.queue_instructions.put('get_data')
+        self.queue_instructions.put('get_hdr')
         while not self.datasent.is_set():  # yeah ... you safeguard by putting only 1 item in queue and then setting
                                             # the datasent multiprocessing event.
                                             # JAM until datasent is set to True.

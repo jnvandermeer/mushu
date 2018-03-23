@@ -54,10 +54,7 @@ import asynchat
 # we definitely need this -- I don't know why it's greyed out here.
 import asyncio
 
-
-
 from libmushu.amplifier import Amplifier
-
 
 logger = logging.getLogger(__name__)
 logger.info('Logger started')
@@ -202,7 +199,6 @@ class AmpDecorator(Amplifier):
                 fh.close()
         print('amplifier stopped!')
 
-
     def configure(self, **kwargs):
         self.amp.configure(**kwargs)
 
@@ -238,10 +234,12 @@ class AmpDecorator(Amplifier):
         # duration of all blocks in ms except the current one
         duration = 1000 * self.received_samples / self.amp.get_sampling_frequency()
 
+
         # merge markers
         tcp_marker = []
         while not self.marker_queue.empty():
             m = self.marker_queue.get()
+            print(m)
             m[0] = (m[0] - t0) * 1000
             tcp_marker.append(m)
         marker = sorted(marker + tcp_marker)
